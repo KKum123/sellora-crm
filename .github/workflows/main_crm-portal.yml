@@ -1,6 +1,6 @@
 # Docs: https://github.com/Azure/webapps-deploy
 
-name: Build and deploy PHP app to Azure Web App - crm-portal
+name: Build and Deploy Laravel (PHP 8.2) to Azure Web App - crm-portal
 
 on:
   push:
@@ -15,32 +15,47 @@ jobs:
       contents: read
 
     steps:
-      # Checkout code
+      # 1️⃣ Checkout source code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Setup PHP EXACTLY like Azure
-      - name: Setup PHP 8.1 with MongoDB extension
+      # 2️⃣ Setup PHP 8.2 + MongoDB extension
+      - name: Setup PHP 8.2
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
-          extensions: mongodb-1.20.0
+          php-version: '8.2'
+          extensions: mongodb
           tools: composer:v2
           coverage: none
 
-      # Verify PHP & MongoDB versions (debug safety)
-      - name: Verify PHP and MongoDB extension
+      # 3️⃣ Verify environment (debug safety)
+      - name: Verify PHP & Extensions
         run: |
           php -v
           php -m | grep mongodb
+          composer -V
 
-      # Install Composer dependencies
+      # 4️⃣ Install Composer dependencies
       - name: Install Composer dependencies
         run: |
           composer validate --no-check-publish
-          composer install --prefer-dist --no-progress --no-interaction --optimize-autoloader
+          composer install \
+            --prefer-dist \
+            --no-progress \
+            --no-interaction \
+            --optimize-autoloader
 
-      # Upload build artifact
+      # 5️⃣ Prepare Laravel for production
+      - name: Laravel optimize
+        run: |
+          if [ -f artisan ]; then
+            php artisan key:generate --force || true
+            php artisan config:clear
+            php artisan route:clear
+            php artisan view:clear
+          fi
+
+      # 6️⃣ Upload artifact
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
@@ -55,21 +70,21 @@ jobs:
       contents: read
 
     steps:
-      # Download artifact
+      # 7️⃣ Download artifact
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: php-app
 
-      # Azure Login
-      - name: Login to Azure
+      # 8️⃣ Login to Azure
+      - name: Azure Login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_341D92F3112D4B0B924E08444B7EF3A9 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_AF7DA014EAE14F24A10D00589578473C }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_889CED33D01C41649DE22902CFEB6FCC }}
 
-      # Deploy to Azure Web App
+      # 9️⃣ Deploy to Azure App Service
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
