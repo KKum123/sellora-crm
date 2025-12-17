@@ -1,0 +1,241 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\ERP\Attendance;
+use App\Models\ERP\Lead;
+use App\Models\ERP\Team;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use MongoDB\BSON\ObjectId;
+use MongoDB\BSON\UTCDateTime;
+
+class AdminDashboardControllers extends Controller
+{
+    public function dashboard(Request $req){
+      $attendance = null;
+      $dashboard = [];
+      $date = Carbon::now()->format('Y-m-d');
+      $startOfDay = Carbon::parse($date)->startOfDay();
+      $endOfDay = Carbon::parse($date)->endOfDay();
+
+       if (session()->has('admin') && session()->get('admin')->_id) {
+            $adminId = new ObjectId(session()->get('admin')->_id);
+
+            $attendance = Attendance::where('adminId', $adminId)
+                ->whereBetween('created_at', [$startOfDay, $endOfDay])
+                ->first();
+
+            $lead = Lead::get();
+
+            
+            $graphData = Lead::raw(function ($collection) {
+                return $collection->aggregate([
+                    // Filter for year 2025
+                    [
+                        '$match' => [
+                            'created_at' => [
+                                '$gte' => new UTCDateTime(Carbon::create(date('Y'), 1, 1, 0, 0, 0, 'UTC')->timestamp * 1000),
+                                '$lte' => new UTCDateTime(Carbon::create(date('Y'), 12, 31, 23, 59, 59, 'UTC')->timestamp * 1000),
+                            ]
+                        ]
+                    ],
+                    // Extract month from `created_at`
+                    [
+                        '$addFields' => [
+                            'month' => [
+                                '$toInt' => [
+                                    '$dateToString' => ['format' => '%m', 'date' => '$created_at']
+                                ]
+                            ]
+                        ]
+                    ],
+                    // Group by month
+                    [
+                        '$group' => [
+                            '_id' => '$month', // Group by month (1-12)
+                            'totalLead' => ['$sum' => 1], // Count total leads per month
+                            'activeLead' => [
+                                '$sum' => [
+                                    '$cond' => [
+                                        [
+                                            '$and' => [
+                                                ['$ne' => ['$projectStatus', 'Completed']],  // Exclude 'Completed' leads
+                                             ]
+                                        ], 
+                                        1, 0
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ],
+                    [
+                        '$sort' => ['_id' => 1] // Sort by month
+                    ]
+                ]);
+            });
+            
+            // Initialize all months (Jan-Dec) with default values
+            $formattedData = array_fill(1, 12, ['total' => 0, 'active' => 0]);
+            
+            // Fill data with actual values
+            foreach ($graphData as $data) {
+                $formattedData[$data->_id] = [
+                    'total'  => $data->totalLead ?? 0,
+                    'active' => $data->activeLead ?? 0
+                ];
+            }
+            
+            // Assign to graph variable
+            $graphData = [
+                'noOfLeadMonth'  => array_column($formattedData, 'total'),  // Total leads per month
+                'totalLeadMonth' => array_column($formattedData, 'active') // Active leads per month
+            ];
+
+           // dd($graphData);
+
+            $dashboard = [
+                'newLead'    => $lead->whereNull('projectStatus')->count(),
+                'activeLead' => $lead->whereNotIn('projectStatus', ['Completed'])->count(),
+                'closeLead'  => $lead->where('projectStatus', 'Completed')->count(),
+                'totalLead'  => $lead->count(),
+                'graphData'   => $graphData
+            ];
+            
+        }
+        
+        if (session()->has('team') && session()->get('team')->_id) {
+            $teamId = new ObjectId(session()->get('team')->_id);
+
+            $attendance = Attendance::where('teamId', $teamId)
+                ->whereBetween('created_at', [$startOfDay, $endOfDay])
+                ->first();
+
+           #hr manager and sub admin
+            if(session()->get('team')->department=='6790b8df2ef8f2064c61d079' || session()->get('team')->department=='67bd6d68d4de44c0093ea46f'){
+                $teamData = Team::where('branchId', new ObjectId(session()->get('team')->branchId))->get();
+                $dashboard = [
+                    'EmployeeRetentionRate' => '--',
+                    'ActiveEmployee'        => $teamData->where('status','1')->count(),
+                    'ResignationEmployee'   => $teamData->count(),
+                    'TotalEmployee'         => $teamData->count()
+                ];
+            }
+            #Salse 
+            if(session()->get('team')->_id=='6790b8962ef8f2064c61d076'){
+            
+            }
+            #operation
+            if(session()->get('team')->_id=='6790b8b82ef8f2064c61d077'){
+            
+            }
+            
+        }
+
+        if (session()->has('branch') && session()->get('branch')->_id) {
+            $branchId = new ObjectId(session()->get('branch')->_id);
+
+            $attendance = Attendance::where('branchId', $branchId)
+                ->whereBetween('created_at', [$startOfDay, $endOfDay])
+                ->first();
+            
+            $lead = Lead::where('branch', $branchId)->get();
+         
+            
+            $graphData = Lead::raw(function ($collection) use ($branchId) {
+                return $collection->aggregate([
+                    // Filter for year 2025
+                    [
+                        '$match' => [
+                            'branch' => $branchId,
+                            'created_at' => [
+                                '$gte' => new UTCDateTime(Carbon::create(date('Y'), 1, 1, 0, 0, 0, 'UTC')->timestamp * 1000),
+                                '$lte' => new UTCDateTime(Carbon::create(date('Y'), 12, 31, 23, 59, 59, 'UTC')->timestamp * 1000),
+                            ]
+                        ]
+                    ],
+                    // Extract month from `created_at`
+                     // Extract month from `created_at`
+                     [
+                        '$addFields' => [
+                            'month' => [
+                                '$toInt' => [
+                                    '$dateToString' => ['format' => '%m', 'date' => '$created_at']
+                                ]
+                            ]
+                        ]
+                    ],
+                    // Group by month
+                    [
+                        '$group' => [
+                            '_id' => '$month', // Group by month (1-12)
+                            'totalLead' => ['$sum' => 1], // Count total leads per month
+                            'activeLead' => [
+                                '$sum' => [
+                                    '$cond' => [
+                                        [
+                                            '$and' => [
+                                                ['$ne' => ['$projectStatus', 'Completed']] // Exclude 'Completed' leads
+                                            ]
+                                        ], 
+                                        1, 0
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ],
+                    [
+                        '$sort' => ['_id' => 1] // Sort by month
+                    ]
+                ]);
+            });
+            
+            // Initialize all months (Jan-Dec) with default values
+            $formattedData = array_fill(1, 12, ['total' => 0, 'active' => 0]);
+            
+            // Fill data with actual values
+            foreach ($graphData as $data) {
+                $formattedData[$data->_id] = [
+                    'total'  => $data->totalLead ?? 0,
+                    'active' => $data->activeLead ?? 0
+                ];
+            }
+            
+            // Assign to graph variable
+            $graphData = [
+                'noOfLeadMonth'  => array_column($formattedData, 'total'),  // Total leads per month
+                'totalLeadMonth' => array_column($formattedData, 'active') // Active leads per month
+            ];
+
+            $dashboard = [
+                'newLead'    => $lead->whereNull('projectStatus')->count(),
+                'activeLead' => $lead->whereNotIn('projectStatus', ['Completed'])->count(),
+                'closeLead'  => $lead->where('projectStatus', 'Completed')->count(),
+                'totalLead'  => $lead->count(),
+                'graphData'   => $graphData
+            ];
+           
+        }
+    
+        return view('admin.dashboard', compact('attendance','dashboard'));
+    }
+    public function fetchTeam(Request $req){
+        $team = Team::with('department1', 'designation1')
+                ->where('_id', new ObjectId($req->teamId))
+                ->first();
+                
+        if ($team) {
+            $data = [
+                'departmentName'  => !empty($team->department1) ? $team->department1->name : '',
+                'designationName' => !empty($team->designation1) ? $team->designation1->name : '',
+                'email'           => $team->email,
+            ];
+        } else {
+            $data = [];
+        }  
+        
+
+        return response()->json($data);
+    }
+}
